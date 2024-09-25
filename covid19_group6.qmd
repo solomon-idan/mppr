@@ -1,0 +1,186 @@
+---
+title: COVID 19 MODELLING Assignment
+Author: Group 6
+format: html 
+editor: visual 
+---
+
+```{r setup, echo=FALSE }
+knitr::opts_chunk$set(
+  fig.cap = '',
+  fig.align = "center", 
+  message = FALSE,
+  warning = FALSE,
+  cache = FALSE,
+  echo = TRUE
+)
+```
+
+# Load required libraries
+
+```{r libraries loading, echo=FALSE}
+library(deSolve)
+library(tidyverse) # loads other packages dplyr, ggplot2
+```
+
+# Introduction
+
+Let
+
+-   N: total population size
+
+-   β: transmission rate
+
+-   (v1+v2): removal rates where
+
+    -   v1: removal rates of detected cases
+
+    -   v2: removal rate of undetected cases and others
+
+# Equations
+
+-   Susceptible (S): The rate of change of susceptible individuals is given by:
+
+    $\frac{dS}{dt} = -\beta SI/N$
+
+-   Infectious (I): The rate of change of infectious individuals is given by:
+
+    $\frac{dI}{dt} = \beta SI - (V1+V2)I$
+
+-   Removed (R): The rate of change of recovered individuals is given by:
+
+$\frac{dR}{dt} = (V1 + V2)I$
+
+# Assumptions
+
+-   The model assumes a fixed population size (N) with no births, deaths (except those caused by the disease)
+-   The model assumes that all individuals in the population have equal probability of coming into contact with one another
+-   The transmission rate (β) and removal rates (ν1 and ν2) are assumed to be constant throughout the epidemic where an individual move from the Susceptible to Infected state immediately upon effective contact, and from Infected to Removed.
+-   Once an individual moves to the Removed compartment, they're assumed to stay there. That is permanent immunity
+-   The model typically describes a single outbreak and doesn't account for potential seasonal or recurring patterns of the disease.
+
+# Define the SIR model
+
+```{r sir_model, echo=FALSE}
+sir_model <- function(time, state, parameters) { 
+with(as.list(c(state, parameters)), { 
+dS <- -beta * S * I / N 
+dI <- beta * S * I / N - (v1 + v2) * I 
+dR <- (v1 + v2) * I 
+return(list(c(dS, dI, dR))) }) }
+```
+
+# Set parameters and initial states
+
+N= 402555230 (Total Population)
+
+I0 = 5811 (Initial Infected)
+
+R0 = 1112 (Initial removed)
+
+```{r parameters and initia states}
+N <- 402555230 # Total population of West Africa 
+I0 <- 5811 # Initial number of infected individuals 
+R0 <- 1112 # Initial number of recovered individuals 
+S0 <- N - I0 - R0 # Initial number of susceptible individuals 
+beta <- 0.152 # Transmission rate 
+v1 <- 0.009 # Removal rate of reported infected individuals 
+v2 <- 0.1 # Removal rate of infected individuals due to all other unreported causes
+
+```
+
+# Initial conditions
+
+```{r init_states, echo=FALSE}
+initial_state <- c(S = S0, 
+                   I = I0, 
+                   R = R0)
+```
+
+# Parameters
+
+```{r parameters, echo=FALSE}
+parameters <- c(N = N, beta = beta, v1 = v1, v2 = v2)
+```
+
+# Time vector (in days)
+
+```{r}
+first_case_date <- ymd("2020-02-28")  # Date of first case in West Africa (Nigeria)
+end_date <- ymd("2020-08-12")  # End date mentioned in the paper
+
+duration <- as.numeric(end_date - first_case_date)
+duration <- duration * 2
+```
+
+```{r time in days, echo=FALSE}
+times <- seq(0, duration, by = 1)
+times
+```
+
+# Solve model
+
+```{r model solution}
+
+solution <-  lsoda(
+  y=initial_state,
+  time=times,
+  parms = parameters,
+  func = sir_model
+)
+```
+
+# Convert to data frame
+
+```{r convert, echo=FALSE}
+
+df <- as.data.frame(solution)
+```
+
+# Plot the results
+
+```{r graph, echo=FALSE}
+result_long <- pivot_longer(df, cols = -time, names_to = "Compartment", values_to = "Population")
+
+ggplot(result_long, aes(x = time, 
+                        y = Population, 
+                        color = Compartment)) +
+  geom_line() +
+  labs(x = "Time (days)", y = "Number of individuals",
+       title = "SIR Model for COVID-19 in West Africa") +
+  scale_color_manual(values = c("S" = "blue", "I" = "red", "R" = "green")) +
+  theme_minimal()
+```
+
+# Calculate and print key metrics
+
+```{r repro number, echo=FALSE}
+R0 <- beta / (v1 + v2)
+cat("Basic Reproduction Number (R0):", round(R0, 2), "\n")
+
+```
+
+```{r peak time, echo=FALSE}
+peak_time <- df$time[which.max(df$I)]
+cat("Peak Time:", round(peak_time), "days\n")
+```
+
+```{r peak infection, echo=FALSE}
+peak_infections <- max(df$I)
+cat("Peak Infections:", round(peak_infections), "\n")
+```
+
+```{r final size, echo=FALSE}
+
+final_size <- tail(df$R, 1) #1 for non-dimensioned objects
+cat("Final Epidemic Size:", round(final_size), "\n")
+```
+
+```{r attack rate, echo=FALSE}
+attack_ratio <- (N - tail(df$S, 1)) / N
+cat("Attack Ratio:", sprintf("%.2f%%", attack_ratio * 100), "\n")
+```
+
+::: callout-note
+## **Attack rate is the proportion of an at-risk population that contracts the disease during a specified time interval.. An at-risk population is defined as one that has no immunity to the attacking pathogen, in this case, SARS-COV-2**
+:::
